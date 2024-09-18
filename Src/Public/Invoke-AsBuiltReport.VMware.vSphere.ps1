@@ -19,21 +19,28 @@ function Invoke-AsBuiltReport.VMware.vSphere {
         [PSCredential] $Credential
     )
 
-    Write-PScriboMessage -Plugin "Module" -IsWarning "Please refer to www.asbuiltreport.com for more detailed information about this project."
-    Write-PScriboMessage -Plugin "Module" -IsWarning "Do not forget to update your report configuration file after each new version release."
-    Write-PScriboMessage -Plugin "Module" -IsWarning "Documentation: https://github.com/AsBuiltReport/AsBuiltReport.VMware.vSphere"
-    Write-PScriboMessage -Plugin "Module" -IsWarning "Issues or bug reporting: https://github.com/AsBuiltReport/AsBuiltReport.VMware.vSphere/issues"
+    # Import Report Configuration
+    $Report = $ReportConfig.Report
+    $InfoLevel = $ReportConfig.InfoLevel
+    $Options = $ReportConfig.Options
+    # Used to set values to TitleCase where required
+    $TextInfo = (Get-Culture).TextInfo
+	
+    Write-PScriboMessage -Plugin "Module" -IsWarning (Get-Translation -Key "MessageURL")
+    Write-PScriboMessage -Plugin "Module" -IsWarning (Get-Translation -Key "MessageUpdate") 
+    Write-PScriboMessage -Plugin "Module" -IsWarning (Get-Translation -Key "MessageDocumentation") 
+    Write-PScriboMessage -Plugin "Module" -IsWarning (Get-Translation -Key "MessageIssues") 
 
     # Check the current AsBuiltReport.VMware.vSphere module
     Try {
         $InstalledVersion = Get-Module -ListAvailable -Name AsBuiltReport.VMware.vSphere -ErrorAction SilentlyContinue | Sort-Object -Property Version -Descending | Select-Object -First 1 -ExpandProperty Version
 
         if ($InstalledVersion) {
-            Write-PScriboMessage -Plugin "Module" -IsWarning "AsBuiltReport.VMware.vSphere $($InstalledVersion.ToString()) is currently installed."
+            Write-PScriboMessage -Plugin "Module" -IsWarning ((Get-Translation -Key "MessageInstalledVersion")+ "$($InstalledVersion.ToString())")
             $LatestVersion = Find-Module -Name AsBuiltReport.VMware.vSphere -Repository PSGallery -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Version
             if ($LatestVersion -gt $InstalledVersion) {
-                Write-PScriboMessage -Plugin "Module" -IsWarning "AsBuiltReport.VMware.vSphere $($LatestVersion.ToString()) is available."
-                Write-PScriboMessage -Plugin "Module" -IsWarning "Run 'Update-Module -Name AsBuiltReport.VMware.vSphere -Force' to install the latest version."
+                Write-PScriboMessage -Plugin "Module" -IsWarning ((Get-Translation -Key "MessageNewVersion")+ "$($LatestVersion.ToString())")
+                Write-PScriboMessage -Plugin "Module" -IsWarning (Get-Translation -Key "MessageUpdateInstruction")
             }
         }
     } Catch {
@@ -42,13 +49,6 @@ function Invoke-AsBuiltReport.VMware.vSphere {
     # Check if the required version of VMware PowerCLI is installed
     Get-RequiredModule -Name 'VMware.PowerCLI' -Version '13.2'
 
-    # Import Report Configuration
-    $Report = $ReportConfig.Report
-    $InfoLevel = $ReportConfig.InfoLevel
-    $Options = $ReportConfig.Options
-    # Used to set values to TitleCase where required
-    $TextInfo = (Get-Culture).TextInfo
-
     #region Script Body
     #---------------------------------------------------------------------------------------------#
     #                                         SCRIPT BODY                                         #
@@ -56,7 +56,7 @@ function Invoke-AsBuiltReport.VMware.vSphere {
     # Connect to vCenter Server using supplied credentials
     foreach ($VIServer in $Target) {
         try {
-            Write-PScriboMessage "Connecting to vCenter Server '$VIServer'."
+            Write-PScriboMessage ((Get-Translation -Key "MessageConnecting") + "$VIServer.")
             $vCenter = Connect-VIServer $VIServer -Credential $Credential -ErrorAction Stop
         } catch {
             Write-Error $_
@@ -65,18 +65,18 @@ function Invoke-AsBuiltReport.VMware.vSphere {
         #region Generate vSphere report
         if ($vCenter) {
             # Check logged in user has sufficient privileges to generate an As Built Report
-            Write-PScriboMessage 'Checking vCenter user privileges.'
+            Write-PScriboMessage (Get-Translation -Key "MessagevCenterPrivilegesCheck")
             Try {
                 $UserPermission = Get-VIPermission | Where-Object { $_.Principal -eq $vCenter.User }
                 $AuthMgr = Get-View $($vCenter.ExtensionData.Content.AuthorizationManager)
                 $UserRole = $AuthMgr.RoleList | Where-Object { $_.Name -eq $($UserPermission.Role) }
             } Catch {
-                Write-PScriboMessage 'Unable to obtain vCenter user privileges.'
+                Write-PScriboMessage (Get-Translation -Key "MessagevCenterPrivilegesError")
             }
 
             # Create a lookup hashtable to quickly link VM MoRefs to Names
             # Exclude VMware Site Recovery Manager placeholder VMs
-            Write-PScriboMessage 'Creating VM lookup hashtable.'
+            Write-PScriboMessage (Get-Translation -Key "MessageVMLookup") 
             $VMs = Get-VM -Server $vCenter | Where-Object {
                 $_.ExtensionData.Config.ManagedBy.ExtensionKey -notlike 'com.vmware.vcDr*'
             } | Sort-Object Name
@@ -87,7 +87,7 @@ function Invoke-AsBuiltReport.VMware.vSphere {
 
             # Create a lookup hashtable to link Host MoRefs to Names
             # Exclude VMware HCX hosts and ESX/ESXi versions prior to vSphere 5.0 from VMHost lookup
-            Write-PScriboMessage 'Creating VMHost lookup hashtable.'
+            Write-PScriboMessage (Get-Translation -Key "MessageVMHostLookup") 
             $VMHosts = Get-VMHost -Server $vCenter | Where-Object { $_.Model -notlike "*VMware Mobility Platform" -and $_.Version -gt 5 } | Sort-Object Name
             $VMHostLookup = @{ }
             foreach ($VMHost in $VMHosts) {
@@ -95,7 +95,7 @@ function Invoke-AsBuiltReport.VMware.vSphere {
             }
 
             # Create a lookup hashtable to link Datastore MoRefs to Names
-            Write-PScriboMessage 'Creating Datastore lookup hashtable.'
+            Write-PScriboMessage (Get-Translation -Key "MessageDatastoreLookup") 
             $Datastores = Get-Datastore -Server $vCenter | Where-Object { ($_.State -eq 'Available') -and ($_.CapacityGB -gt 0) } | Sort-Object Name
             $DatastoreLookup = @{ }
             foreach ($Datastore in $Datastores) {
@@ -103,7 +103,7 @@ function Invoke-AsBuiltReport.VMware.vSphere {
             }
 
             # Create a lookup hashtable to link VDS Portgroups MoRefs to Names
-            Write-PScriboMessage 'Creating VDPortGroup lookup hashtable.'
+            Write-PScriboMessage (Get-Translation -Key "MessageVDPortGroupLookup")
             $VDPortGroups = Get-VDPortgroup -Server $vCenter | Sort-Object Name
             $VDPortGroupLookup = @{ }
             foreach ($VDPortGroup in $VDPortGroups) {
@@ -111,7 +111,7 @@ function Invoke-AsBuiltReport.VMware.vSphere {
             }
 
             # Create a lookup hashtable to link EVC Modes to Names
-            Write-PScriboMessage 'Creating EVC lookup hashtable.'
+            Write-PScriboMessage (Get-Translation -Key "MessageEVCLookup")
             $SupportedEvcModes = $vCenter.ExtensionData.Capability.SupportedEVCMode
             $EvcModeLookup = @{ }
             foreach ($EvcMode in $SupportedEvcModes) {
@@ -122,7 +122,7 @@ function Invoke-AsBuiltReport.VMware.vSphere {
             $extMgr = Get-View -Id $si.Content.ExtensionManager -Server $vCenter
 
             #region VMware Update Manager Server Name
-            Write-PScriboMessage 'Checking for VMware Update Manager Server.'
+            Write-PScriboMessage (Get-Translation -Key "MessageVUM")
             $VumServer = $extMgr.ExtensionList | Where-Object { $_.Key -eq 'com.vmware.vcIntegrity' } |
             Select-Object @{
                 N = 'Name';
@@ -132,7 +132,7 @@ function Invoke-AsBuiltReport.VMware.vSphere {
             #endregion VMware Update Manager Server Name
 
             #region VxRail Manager Server Name
-            Write-PScriboMessage 'Checking for VxRail Manager Server.'
+            Write-PScriboMessage (Get-Translation -Key "MessageVXRail")
             $VxRailMgr = $extMgr.ExtensionList | Where-Object { $_.Key -eq 'com.vmware.vxrail' } |
             Select-Object @{
                 N = 'Name';
@@ -142,7 +142,7 @@ function Invoke-AsBuiltReport.VMware.vSphere {
             #endregion VxRail Manager Server Name
 
             #region Site Recovery Manager Server Name
-            Write-PScriboMessage 'Checking for VMware Site Recovery Manager Server.'
+            Write-PScriboMessage (Get-Translation -Key "MessageSRM")
             $SrmServer = $extMgr.ExtensionList | Where-Object { $_.Key -eq 'com.vmware.vcDr' } |
             Select-Object @{
                 N = 'Name';
@@ -152,7 +152,7 @@ function Invoke-AsBuiltReport.VMware.vSphere {
             #endregion Site Recovery Manager Server Name
 
             #region NSX-T Manager Server Name
-            Write-PScriboMessage 'Checking for VMware NSX-T Manager Server.'
+            Write-PScriboMessage (Get-Translation -Key "MessageNSX")
             $NsxtServer = $extMgr.ExtensionList | Where-Object { $_.Key -eq 'com.vmware.nsx.management.nsxt' } |
             Select-Object @{
                 N = 'Name';
@@ -168,7 +168,7 @@ function Invoke-AsBuiltReport.VMware.vSphere {
             #endregion Tag Information
 
             #region vCenter Advanced Settings
-            Write-PScriboMessage "Collecting $vCenter advanced settings."
+            Write-PScriboMessage ((Get-Translation -Key "MessageNSX") + "$vCenter") 
             $vCenterAdvSettings = Get-AdvancedSetting -Entity $vCenter
             $vCenterServerName = ($vCenterAdvSettings | Where-Object { $_.name -eq 'VirtualCenter.FQDN' }).Value
             $vCenterServerName = $vCenterServerName.ToString().ToLower()
@@ -177,15 +177,15 @@ function Invoke-AsBuiltReport.VMware.vSphere {
             #region vCenter Server Heading1 Section
             Section -Style Heading1 $vCenterServerName {
                 #region vCenter Server Section
-                Write-PScriboMessage "vCenter InfoLevel set at $($InfoLevel.vCenter)."
+                Write-PScriboMessage ((Get-Translation -Key "MessageInfoLevel") + "$($InfoLevel.vCenter).")  
                 if ($InfoLevel.vCenter -ge 1) {
                     Section -Style Heading2 'vCenter Server' {
-                        Paragraph "The following sections detail the configuration of vCenter Server $vCenterServerName."
+						Paragraph ((Get-Translation -Key "ConfigDetails_vCenter") + "$vCenterServerName.")
                         BlankLine
                         # Gather basic vCenter Server Information
                         $vCenterServerInfo = [PSCustomObject]@{
                             'vCenter Server' = $vCenterServerName
-                            'IP Address' = ($vCenterAdvSettings | Where-Object { $_.name -like 'VirtualCenter.AutoManagedIPV4' }).Value
+                            (Get-Translation -Key "Keyword_IPAddress") = ($vCenterAdvSettings | Where-Object { $_.name -like 'VirtualCenter.AutoManagedIPV4' }).Value
                             'Version' = $vCenter.Version
                             'Build' = $vCenter.Build
                         }
@@ -274,11 +274,11 @@ function Invoke-AsBuiltReport.VMware.vSphere {
                             #endregion vCenter Server Database Settings
 
                             #region vCenter Server Mail Settings
-                            Section -Style Heading3 'Mail Settings' {
+                            Section -Style Heading3 (Get-Translation -Key "Keyword_Mailsettings") {
                                 $vCenterMailInfo = [PSCustomObject]@{
-                                    'SMTP Server' = ($vCenterAdvSettings | Where-Object { $_.name -eq 'mail.smtp.server' }).Value
-                                    'SMTP Port' = ($vCenterAdvSettings | Where-Object { $_.name -eq 'mail.smtp.port' }).Value
-                                    'Mail Sender' = ($vCenterAdvSettings | Where-Object { $_.name -eq 'mail.sender' }).Value
+                                    (Get-Translation -Key "Keyword_SMTPServer") = ($vCenterAdvSettings | Where-Object { $_.name -eq 'mail.smtp.server' }).Value
+                                    (Get-Translation -Key "Keyword_SMTPPort") = ($vCenterAdvSettings | Where-Object { $_.name -eq 'mail.smtp.port' }).Value
+                                    (Get-Translation -Key "Keyword_MailSender") = ($vCenterAdvSettings | Where-Object { $_.name -eq 'mail.sender' }).Value
                                 }
                                 if ($Healthcheck.vCenter.Mail) {
                                     $vCenterMailInfo | Where-Object { !($_.'SMTP Server') } | Set-Style -Style Critical -Property 'SMTP Server'
@@ -286,7 +286,7 @@ function Invoke-AsBuiltReport.VMware.vSphere {
                                     $vCenterMailInfo | Where-Object { !($_.'Mail Sender') } | Set-Style -Style Critical -Property 'Mail Sender'
                                 }
                                 $TableParams = @{
-                                    Name = "Mail Settings - $vCenterServerName"
+                                    Name = ((Get-Translation -Key "Keyword_Mailsettings") +" - $vCenterServerName")
                                     List = $true
                                     ColumnWidths = 50, 50
                                 }
@@ -298,11 +298,11 @@ function Invoke-AsBuiltReport.VMware.vSphere {
                             #endregion vCenter Server Mail Settings
 
                             #region vCenter Server Historical Statistics
-                            Section -Style Heading3 'Historical Statistics' {
+                            Section -Style Heading3 (Get-Translation -Key "Keyword_HistoricalStatistics") {
                                 $vCenterHistoricalStats = Get-vCenterStats | Select-Object @{L = 'Interval Duration'; E = { $_.IntervalDuration } }, @{L = 'Interval Enabled'; E = { $_.IntervalEnabled } },
                                 @{L = 'Save Duration'; E = { $_.SaveDuration } }, @{L = 'Statistics Level'; E = { $_.StatsLevel } } -Unique
                                 $TableParams = @{
-                                    Name = "Historical Statistics - $vCenterServerName"
+                                    Name = ((Get-Translation -Key "Keyword_HistoricalStatistics") + " - $vCenterServerName")
                                     ColumnWidths = 25, 25, 25, 25
                                 }
                                 if ($Report.ShowTableCaptions) {
@@ -314,14 +314,14 @@ function Invoke-AsBuiltReport.VMware.vSphere {
 
                             #region vCenter Server Licensing
                             if ($UserRole.Privilege -contains 'Global.Licenses') {
-                                Section -Style Heading3 'Licensing' {
-                                    $Licenses = Get-License -Licenses | Select-Object Product, @{L = 'License Key'; E = { ($_.LicenseKey) } }, Total, Used, @{L = 'Available'; E = { ($_.total) - ($_.Used) } }, Expiration -Unique
+                                Section -Style Heading3 (Get-Translation -Key "Keyword_Licensing") {
+                                    $Licenses = Get-License -Licenses | Select-Object Product, @{L = (Get-Translation -Key "Keyword_LicenseKey"); E = { ($_.LicenseKey) } }, (Get-Translation -Key "Keyword_Total"), (Get-Translation -Key "Keyword_Used"), @{L = (Get-Translation -Key "Keyword_Available"); E = { ($_.total) - ($_.Used) } }, Expiration -Unique
                                     if ($Healthcheck.vCenter.Licensing) {
                                         $Licenses | Where-Object { $_.Product -eq 'Product Evaluation' } | Set-Style -Style Warning
                                         $Licenses | Where-Object { $_.Expiration -eq 'Expired' } | Set-Style -Style Critical
                                     }
                                     $TableParams = @{
-                                        Name = "Licensing - $vCenterServerName"
+                                        Name = ((Get-Translation -Key "Keyword_Licensing") + " - $vCenterServerName")
                                         ColumnWidths = 25, 25, 12, 12, 12, 14
                                     }
                                     if ($Report.ShowTableCaptions) {
@@ -410,7 +410,7 @@ function Invoke-AsBuiltReport.VMware.vSphere {
                                     $TagInfo = foreach ($Tag in $Tags) {
                                         [PSCustomObject] @{
                                             'Tag' = $Tag.Name
-                                            'Description' = Switch ($Tag.Description) {
+                                            (Get-Translation -Key "Keyword_Description") = Switch ($Tag.Description) {
                                                 '' { 'None' }
                                                 default { $Tag.Description }
                                             }
@@ -438,7 +438,7 @@ function Invoke-AsBuiltReport.VMware.vSphere {
                                     $TagCategoryInfo = foreach ($TagCategory in $TagCategories) {
                                         [PSCustomObject] @{
                                             'Category' = $TagCategory.Name
-                                            'Description' = Switch ($TagCategory.Description) {
+                                            (Get-Translation -Key "Keyword_Description") = Switch ($TagCategory.Description) {
                                                 '' { 'None' }
                                                 default { $TagCategory.Description }
                                             }
@@ -490,7 +490,7 @@ function Invoke-AsBuiltReport.VMware.vSphere {
                                         $VmStoragePolicies = foreach ($SpbmStoragePolicy in $SpbmStoragePolicies) {
                                             [PSCustomObject]@{
                                                 'VM Storage Policy' = $SpbmStoragePolicy.Name
-                                                'Description' = $SpbmStoragePolicy.Description
+                                                (Get-Translation -Key "Keyword_Description") = $SpbmStoragePolicy.Description
                                             }
                                         }
                                         $TableParams = @{
@@ -518,7 +518,7 @@ function Invoke-AsBuiltReport.VMware.vSphere {
                                     Get-AlarmAction -AlarmDefinition $_ -PipelineVariable action | ForEach-Object -Process {
                                         Get-AlarmActionTrigger -AlarmAction $_ |
                                         Select-Object @{N = 'Alarm'; E = { $alarm.Name } },
-                                        @{N = 'Description'; E = { $alarm.Description } },
+                                        @{N = (Get-Translation -Key "Keyword_Description"); E = { $alarm.Description } },
                                         @{N = 'Enabled'; E = { Switch ($alarm.Enabled) {
                                                     $true { 'Enabled' }
                                                     $false { 'Disabled' }
@@ -569,7 +569,7 @@ function Invoke-AsBuiltReport.VMware.vSphere {
                                 } else {
                                     $TableParams = @{
                                         Name = "Alarms - $vCenterServerName"
-                                        Columns = 'Alarm', 'Description', 'Enabled', 'Entity', 'Trigger'
+                                        Columns = 'Alarm', (Get-Translation -Key "Keyword_Description"), 'Enabled', 'Entity', 'Trigger'
                                         ColumnWidths = 20, 20, 20, 20, 20
                                     }
                                     if ($Report.ShowTableCaptions) {
@@ -610,7 +610,7 @@ function Invoke-AsBuiltReport.VMware.vSphere {
                     if ($Clusters) {
                         #region Cluster Section
                         Section -Style Heading2 'Clusters' {
-                            Paragraph "The following sections detail the configuration of vSphere HA/DRS clusters managed by vCenter Server $vCenterServerName."
+							Paragraph ((Get-Translation -Key "ClusterDetailsIntro_vCenter") + "$vCenterServerName.")
                             #region Cluster Advanced Summary
                             if ($InfoLevel.Cluster -le 2) {
                                 BlankLine
@@ -675,7 +675,7 @@ function Invoke-AsBuiltReport.VMware.vSphere {
                                     $ClusterConfigEx = $Cluster.ExtensionData.ConfigurationEx
                                     #region Cluster Section
                                     Section -Style Heading3 $Cluster {
-                                        Paragraph "The following table details the configuration for cluster $Cluster."
+										Paragraph ((Get-Translation -Key "ClusterDetails_vCenter") + "$Cluster.")
                                         BlankLine
                                         #region Cluster Configuration
                                         $ClusterDetail = [PSCustomObject]@{
@@ -751,7 +751,7 @@ function Invoke-AsBuiltReport.VMware.vSphere {
                                         #region vSphere HA Cluster Configuration
                                         if ($Cluster.HAEnabled) {
                                             Section -Style Heading4 'vSphere HA Configuration' {
-                                                Paragraph "The following section details the vSphere HA configuration for $Cluster cluster."
+												Paragraph ((Get-Translation -Key "ClusterDetailsHA_vCenter") + "$Cluster.")
                                                 #region vSphere HA Cluster Failures and Responses
                                                 Section -Style NOTOCHeading5 -ExcludeFromTOC 'Failures and Responses' {
                                                     $HAClusterResponses = [PSCustomObject]@{
@@ -974,7 +974,7 @@ function Invoke-AsBuiltReport.VMware.vSphere {
                                         # Proactive HA is only available in vSphere 6.5 and above
                                         if ($ClusterConfigEx.InfraUpdateHaConfig.Enabled -and $vCenter.Version -ge 6.5) {
                                             Section -Style Heading4 'Proactive HA' {
-                                                Paragraph "The following section details the Proactive HA configuration for $Cluster cluster."
+												Paragraph ((Get-Translation -Key "ClusterDetailsProactiveHA_vCenter") + "$Cluster.")
                                                 #region Proactive HA Failures and Responses Section
                                                 Section -Style NOTOCHeading5 -ExcludeFromTOC 'Failures and Responses' {
                                                     $ProactiveHa = [PSCustomObject]@{
@@ -1028,8 +1028,7 @@ function Invoke-AsBuiltReport.VMware.vSphere {
                                         #region vSphere DRS Cluster Configuration
                                         if ($Cluster.DrsEnabled) {
                                             Section -Style Heading4 'vSphere DRS Configuration' {
-                                                Paragraph ("The following table details the vSphere DRS configuration " +
-                                                    "for cluster $Cluster.")
+												Paragraph ((Get-Translation -Key "ClusterDetailsDRS_vCenter") + "$Cluster.")
                                                 BlankLine
 
                                                 #region vSphere DRS Cluster Specifications
@@ -1502,7 +1501,7 @@ function Invoke-AsBuiltReport.VMware.vSphere {
                                                                 $ClusterBaselines = foreach ($ClusterBaseline in $ClusterPatchBaselines) {
                                                                     [PSCustomObject]@{
                                                                         'Baseline' = $ClusterBaseline.Name
-                                                                        'Description' = $ClusterBaseline.Description
+                                                                        (Get-Translation -Key "Keyword_Description") = $ClusterBaseline.Description
                                                                         'Type' = $ClusterBaseline.BaselineType
                                                                         'Target Type' = $ClusterBaseline.TargetType
                                                                         'Last Update Time' = ($ClusterBaseline.LastUpdateTime).ToLocalTime()
@@ -1580,7 +1579,7 @@ function Invoke-AsBuiltReport.VMware.vSphere {
 
                                                 #region Cluster Permissions
                                                 Section -Style NOTOCHeading4 -ExcludeFromTOC 'Permissions' {
-                                                    Paragraph "The following table details the permissions assigned to cluster $Cluster."
+													Paragraph ((Get-Translation -Key "ClusterDetailsPermissions_vCenter") + "$Cluster.")
                                                     BlankLine
                                                     $VIPermissions = $Cluster | Get-VIPermission
                                                     $ClusterVIPermissions = foreach ($VIPermission in $VIPermissions) {
@@ -1629,7 +1628,7 @@ function Invoke-AsBuiltReport.VMware.vSphere {
                     if ($ResourcePools) {
                         #region Resource Pools Section
                         Section -Style Heading2 'Resource Pools' {
-                            Paragraph "The following sections detail the configuration of resource pools managed by vCenter Server $vCenterServerName."
+							Paragraph ((Get-Translation -Key "ClusterDetailsResourcePool_vCenter") + "$vCenterServerName.")
                             #region Resource Pool Advanced Summary
                             if ($InfoLevel.ResourcePool -le 2) {
                                 BlankLine
@@ -1740,7 +1739,7 @@ function Invoke-AsBuiltReport.VMware.vSphere {
                     if ($VMHosts) {
                         #region Hosts Section
                         Section -Style Heading2 'Hosts' {
-                            Paragraph "The following sections detail the configuration of VMware ESXi hosts managed by vCenter Server $vCenterServerName."
+                            Paragraph ((Get-Translation -Key "ClusterDetailsHosts_vCenter") + "$vCenterServerName.")
                             #region ESXi Host Advanced Summary
                             if ($InfoLevel.VMHost -le 2) {
                                 BlankLine
@@ -1786,7 +1785,7 @@ function Invoke-AsBuiltReport.VMware.vSphere {
                                         # TODO: Test Tags
                                         #region ESXi Host Hardware Section
                                         Section -Style Heading4 'Hardware' {
-                                            Paragraph "The following section details the host hardware configuration for $VMHost."
+                                            Paragraph ((Get-Translation -Key "ClusterDetailsHostsHardware_vCenter") +"$VMHost.")
                                             BlankLine
 
                                             #region ESXi Host Specifications
@@ -1897,8 +1896,8 @@ function Invoke-AsBuiltReport.VMware.vSphere {
                                                 Section -Style NOTOCHeading5 -ExcludeFromTOC 'IPMI / BMC' {
                                                     $VMHostIPMIInfo = [PSCustomObject]@{
                                                         'Manufacturer' = $VMHostIPMI.Manufacturer
-                                                        'MAC Address' = $VMHostIPMI.MacAddress
-                                                        'IP Address' = $VMHostIPMI.IPv4Address
+                                                        (Get-Translation -Key "Keyword_MACAddress") = $VMHostIPMI.MacAddress
+                                                        (Get-Translation -Key "Keyword_IPAddress") = $VMHostIPMI.IPv4Address
                                                         'Subnet Mask' = $VMHostIPMI.IPv4Subnet
                                                         'Gateway' = $VMHostIPMI.IPv4Gateway
                                                         'Firmware Version' = $VMHostIPMI.BMCFirmwareVersion
@@ -2028,7 +2027,7 @@ function Invoke-AsBuiltReport.VMware.vSphere {
 
                                         #region ESXi Host System Section
                                         Section -Style Heading4 'System' {
-                                            Paragraph "The following section details the host system configuration for $VMHost."
+											Paragraph ((Get-Translation -Key "HostsConfigDetails_vCenter") + "$VMHost.")
                                             #region ESXi Host Profile Information
                                             if ($VMHost | Get-VMHostProfile) {
                                                 Section -Style NOTOCHeading5 -ExcludeFromTOC 'Host Profile' {
@@ -2125,7 +2124,7 @@ function Invoke-AsBuiltReport.VMware.vSphere {
                                                             $VMHostBaselines = foreach ($VMHostBaseline in $VMHostPatchBaselines) {
                                                                 [PSCustomObject]@{
                                                                     'Baseline' = $VMHostBaseline.Name
-                                                                    'Description' = $VMHostBaseline.Description
+                                                                    (Get-Translation -Key "Keyword_Description") = $VMHostBaseline.Description
                                                                     'Type' = $VMHostBaseline.BaselineType
                                                                     'Target Type' = $VMHostBaseline.TargetType
                                                                     'Last Update Time' = $VMHostBaseline.LastUpdateTime
@@ -2234,8 +2233,7 @@ function Invoke-AsBuiltReport.VMware.vSphere {
 
                                         #region ESXi Host Storage Section
                                         Section -Style Heading4 'Storage' {
-                                            Paragraph "The following section details the host storage configuration for $VMHost."
-
+                                            Paragraph ((Get-Translation -Key "HostsStorage_vCenter") + "$VMHost.")
                                             #region ESXi Host Datastore Specifications
                                             $VMHostDatastores = $VMHost | Get-Datastore | Where-Object { ($_.State -eq 'Available') -and ($_.CapacityGB -gt 0) } | Sort-Object Name
                                             if ($VMHostDatastores) {
@@ -2276,7 +2274,7 @@ function Invoke-AsBuiltReport.VMware.vSphere {
                                             if ($VMHostHbas) {
                                                 #region ESXi Host Storage Adapters Section
                                                 Section -Style NOTOCHeading5 -ExcludeFromTOC 'Storage Adapters' {
-                                                    Paragraph "The following section details the storage adapter configuration for $VMHost."
+                                                    Paragraph ((Get-Translation -Key "HostsStorageAdapters_vCenter") + "$VMHost.") 
                                                     foreach ($VMHostHba in $VMHostHbas) {
                                                         $Target = ((Get-View $VMHostHba.VMhost).Config.StorageDevice.ScsiTopology.Adapter | Where-Object { $_.Adapter -eq $VMHostHba.Key }).Target
                                                         $LUNs = Get-ScsiLun -Hba $VMHostHba -LunType "disk" -ErrorAction SilentlyContinue
@@ -2377,7 +2375,7 @@ function Invoke-AsBuiltReport.VMware.vSphere {
 
                                         #region ESXi Host Network Section
                                         Section -Style Heading4 'Network' {
-                                            Paragraph "The following section details the host network configuration for $VMHost."
+                                            Paragraph ((Get-Translation -Key "HostsNetwork_vCenter") + "$VMHost.")
                                             BlankLine
                                             #region ESXi Host Network Configuration
                                             $VMHostNetwork = $VMHost.ExtensionData.Config.Network
@@ -2423,7 +2421,7 @@ function Invoke-AsBuiltReport.VMware.vSphere {
 
                                             #region ESXi Host Physical Adapters
                                             Section -Style NOTOCHeading5 -ExcludeFromTOC 'Physical Adapters' {
-                                                Paragraph "The following section details the physical network adapter configuration for $VMHost."
+                                                Paragraph ((Get-Translation -Key "HostsNetworkPhysical_vCenter") + "$VMHost.")
                                                 $PhysicalNetAdapters = $VMHost.ExtensionData.Config.Network.Pnic | Sort-Object Device
                                                 $VMHostPhysicalNetAdapters = foreach ($PhysicalNetAdapter in $PhysicalNetAdapters) {
                                                     [PSCustomObject]@{
@@ -2441,7 +2439,7 @@ function Invoke-AsBuiltReport.VMware.vSphere {
                                                                 '--'
                                                             }
                                                         )
-                                                        'MAC Address' = $PhysicalNetAdapter.Mac
+                                                        (Get-Translation -Key "Keyword_MACAddress") = $PhysicalNetAdapter.Mac
                                                         'Actual Speed, Duplex' = Switch ($PhysicalNetAdapter.LinkSpeed.SpeedMb) {
                                                             $null { 'Down' }
                                                             default {
@@ -2504,7 +2502,7 @@ function Invoke-AsBuiltReport.VMware.vSphere {
                                             $VMHostNetworkAdapterCDP = $VMHost | Get-VMHostNetworkAdapterDP | Where-Object { $_.Status -eq 'Connected' } | Sort-Object Device
                                             if ($VMHostNetworkAdapterCDP) {
                                                 Section -Style NOTOCHeading5 -ExcludeFromTOC 'Cisco Discovery Protocol' {
-                                                    Paragraph "The following section details the CDP information for $VMHost."
+                                                    Paragraph ((Get-Translation -Key "HostsNetworkCDP_vCenter") + "$VMHost.") 
                                                     if ($InfoLevel.VMHost -ge 4) {
                                                         foreach ($VMHostNetworkAdapter in $VMHostNetworkAdapterCDP) {
                                                             Section -Style NOTOCHeading5 -ExcludeFromTOC "$($VMHostNetworkAdapter.Device)" {
@@ -2560,7 +2558,7 @@ function Invoke-AsBuiltReport.VMware.vSphere {
                                             $VMHostNetworkAdapterLLDP = $VMHost | Get-VMHostNetworkAdapterDP | Where-Object { $null -ne $_.ChassisId } | Sort-Object Device
                                             if ($VMHostNetworkAdapterLLDP) {
                                                 Section -Style NOTOCHeading5 -ExcludeFromTOC 'Link Layer Discovery Protocol' {
-                                                    Paragraph "The following section details the LLDP information for $VMHost."
+                                                    Paragraph ((Get-Translation -Key "HostsNetworkLLDP_vCenter") + "$VMHost.") 
                                                     if ($InfoLevel.VMHost -ge 4) {
                                                         foreach ($VMHostNetworkAdapter in $VMHostNetworkAdapterLLDP) {
                                                             Section -Style NOTOCHeading5 -ExcludeFromTOC "$($VMHostNetworkAdapter.Device)" {
@@ -2613,7 +2611,7 @@ function Invoke-AsBuiltReport.VMware.vSphere {
 
                                             #region ESXi Host VMkernel Adapaters
                                             Section -Style NOTOCHeading5 -ExcludeFromTOC 'VMkernel Adapters' {
-                                                Paragraph "The following section details the VMkernel adapter configuration for $VMHost"
+                                                Paragraph ((Get-Translation -Key "HostsNetworkVMkernel_vCenter") + "$VMHost.") 
                                                 $VMkernelAdapters = $VMHost | Get-View | ForEach-Object -Process {
                                                     #$esx = $_
                                                     $netSys = Get-View -Id $_.ConfigManager.NetworkSystem
@@ -2654,12 +2652,12 @@ function Invoke-AsBuiltReport.VMware.vSphere {
                                                                 default { $_.Spec.NetstackInstanceKey }
                                                             }
                                                             'MTU' = $_.Spec.Mtu
-                                                            'MAC Address' = $_.Spec.Mac
+                                                            (Get-Translation -Key "Keyword_MACAddress") = $_.Spec.Mac
                                                             'DHCP' = Switch ($_.Spec.Ip.Dhcp) {
                                                                 $true { 'Enabled' }
                                                                 $false { 'Disabled' }
                                                             }
-                                                            'IP Address' = & {
+                                                            (Get-Translation -Key "Keyword_IPAddress") = & {
                                                                 if ($_.Spec.IP.IPAddress) {
                                                                     $script:ip = $_.Spec.IP.IPAddress
                                                                 } else {
@@ -2739,7 +2737,7 @@ function Invoke-AsBuiltReport.VMware.vSphere {
                                             if ($VSSwitches) {
                                                 #region Section Standard Virtual Switches
                                                 Section -Style NOTOCHeading5 -ExcludeFromTOC 'Standard Virtual Switches' {
-                                                    Paragraph "The following section details the standard virtual switch configuration for $VMHost."
+                                                    Paragraph ((Get-Translation -Key "HostsNetworkvSwitch_vCenter") + "$VMHost.") 
                                                     BlankLine
                                                     $VSSwitchNicTeaming = $VSSwitches | Get-NicTeamingPolicy
                                                     #region ESXi Host Standard Virtual Switch Properties
@@ -3009,7 +3007,7 @@ function Invoke-AsBuiltReport.VMware.vSphere {
 
                                         #region ESXi Host Security Section
                                         Section -Style Heading4 'Security' {
-                                            Paragraph "The following section details the host security configuration for $VMHost."
+                                            Paragraph ((Get-Translation -Key "HostsSecurity_vCenter") + "$VMHost.") 
                                             #region ESXi Host Lockdown Mode
                                             if ($null -ne $VMHost.ExtensionData.Config.LockdownMode) {
                                                 Section -Style NOTOCHeading5 -ExcludeFromTOC 'Lockdown Mode' {
@@ -3143,7 +3141,7 @@ function Invoke-AsBuiltReport.VMware.vSphere {
                                             if ($VMHostVMs) {
                                                 #region Virtual Machines Section
                                                 Section -Style Heading4 'Virtual Machines' {
-                                                    Paragraph "The following section details the virtual machine configuration for $VMHost."
+                                                    Paragraph ((Get-Translation -Key "HostsVM_vCenter") + "$VMHost.")
                                                     BlankLine
                                                     #region ESXi Host Virtual Machine Information
                                                     $VMHostVMInfo = foreach ($VMHostVM in $VMHostVMs) {
@@ -3155,7 +3153,7 @@ function Invoke-AsBuiltReport.VMware.vSphere {
                                                                 'PoweredOff' { 'Off' }
                                                                 default { $VMHostVM.PowerState }
                                                             }
-                                                            'IP Address' = Switch ($VMHostVMView.Guest.IpAddress) {
+                                                            (Get-Translation -Key "Keyword_IPAddress") = Switch ($VMHostVMView.Guest.IpAddress) {
                                                                 $null { '--' }
                                                                 default { $VMHostVMView.Guest.IpAddress }
                                                             }
@@ -3253,7 +3251,7 @@ function Invoke-AsBuiltReport.VMware.vSphere {
                     $VDSwitches = Get-VDSwitch -Server $vCenter | Sort-Object Name
                     if ($VDSwitches) {
                         Section -Style Heading2 'Distributed Switches' {
-                            Paragraph "The following sections detail the configuration of distributed switches managed by vCenter Server $vCenterServerName."
+                            Paragraph ((Get-Translation -Key "HostsNetworkDVS_vCenter") + "$vCenterServerName.") 
                             #region Distributed Switch Advanced Summary
                             if ($InfoLevel.Network -le 2) {
                                 BlankLine
@@ -3637,7 +3635,7 @@ function Invoke-AsBuiltReport.VMware.vSphere {
                                 $VsanSpaceInfo | Table @TableParams
                             }
 
-                            Paragraph "The following sections detail the configuration of vSAN managed by vCenter Server $vCenterServerName."
+                            Paragraph ((Get-Translation -Key "vSANConfig_vCenter") + "$vCenterServerName.")
                             #region vSAN Cluster Advanced Summary
                             if ($InfoLevel.vSAN -le 2) {
                                 BlankLine
@@ -3754,7 +3752,7 @@ function Invoke-AsBuiltReport.VMware.vSphere {
                                                             $true { 'Yes' }
                                                             $false { 'No' }
                                                         }
-                                                        'Capacity' = "$([math]::Round($Disk.CapacityGB, 2)) GB"
+                                                        (Get-Translation -Key "Keyword_Capacity") = "$([math]::Round($Disk.CapacityGB, 2)) GB"
                                                         'Capacity GB' = [math]::Round($Disk.CapacityGB, 2)
                                                         'Serial Number' = $Disk.ExtensionData.SerialNumber
                                                         'Vendor' = $Disk.ExtensionData.Vendor
@@ -3771,7 +3769,7 @@ function Invoke-AsBuiltReport.VMware.vSphere {
                                                             $TableParams = @{
                                                                 Name = "Disk $($vDisk.Name) - $($vDisk.Host)"
                                                                 List = $true
-                                                                Columns = 'Name', 'State', 'Drive Type', 'Encrypted', 'Capacity', 'Host', 'Serial Number', 'Vendor', 'Model', 'Disk Format Version', 'Disk Type'
+                                                                Columns = 'Name', 'State', 'Drive Type', 'Encrypted', (Get-Translation -Key "Keyword_Capacity"), 'Host', 'Serial Number', 'Vendor', 'Model', 'Disk Format Version', 'Disk Type'
                                                                 ColumnWidths = 50, 50
                                                             }
                                                             if ($Report.ShowTableCaptions) {
@@ -3898,9 +3896,9 @@ function Invoke-AsBuiltReport.VMware.vSphere {
                                                         'Host' = $Disk.VsanDiskGroup.VMHost.Name
                                                         'Claimed As' = Switch ($Disk.IsCacheDisk) {
                                                             $true { 'Cache' }
-                                                            $false { 'Capacity' }
+                                                            $false { (Get-Translation -Key "Keyword_Capacity") }
                                                         }
-                                                        'Capacity' = "$([math]::Round($Disk.CapacityGB, 2)) GB"
+                                                        (Get-Translation -Key "Keyword_Capacity") = "$([math]::Round($Disk.CapacityGB, 2)) GB"
                                                         'Capacity GB' = [math]::Round($Disk.CapacityGB, 2)
                                                         'Serial Number' = $Disk.ExtensionData.SerialNumber
                                                         'Vendor' = $Disk.ExtensionData.Vendor
@@ -3917,7 +3915,7 @@ function Invoke-AsBuiltReport.VMware.vSphere {
                                                             $TableParams = @{
                                                                 Name = "Disk $($vDisk.Name) - $($vDisk.Host)"
                                                                 List = $true
-                                                                Columns = 'Name', 'Drive Type', 'Claimed As', 'Capacity', 'Host', 'Disk Group', 'Serial Number', 'Vendor', 'Model', 'Disk Format Version'
+                                                                Columns = 'Name', 'Drive Type', 'Claimed As', (Get-Translation -Key "Keyword_Capacity"), 'Host', 'Disk Group', 'Serial Number', 'Vendor', 'Model', 'Disk Format Version'
                                                                 ColumnWidths = 50, 50
                                                             }
                                                             if ($Report.ShowTableCaptions) {
@@ -4030,7 +4028,7 @@ function Invoke-AsBuiltReport.VMware.vSphere {
                 if ($InfoLevel.Datastore -ge 1) {
                     if ($Datastores) {
                         Section -Style Heading2 'Datastores' {
-                            Paragraph "The following sections detail the configuration of datastores managed by vCenter Server $vCenterServerName."
+                            Paragraph ((Get-Translation -Key "StorageConfig_vCenter") + "$vCenterServerName.") 
                             #region Datastore Infomative Information
                             if ($InfoLevel.Datastore -le 2) {
                                 BlankLine
@@ -4186,7 +4184,7 @@ function Invoke-AsBuiltReport.VMware.vSphere {
                     if ($DSClusters) {
                         #region Datastore Clusters Section
                         Section -Style Heading2 'Datastore Clusters' {
-                            Paragraph "The following sections detail the configuration of datastore clusters managed by vCenter Server $vCenterServerName."
+                            Paragraph ((Get-Translation -Key "StorageClusterConfig_vCenter") + "$vCenterServerName.") 
                             #region Datastore Cluster Advanced Summary
                             if ($InfoLevel.DSCluster -le 2) {
                                 BlankLine
@@ -4226,8 +4224,7 @@ function Invoke-AsBuiltReport.VMware.vSphere {
                                     # TODO: Space Load Balance Config, IO Load Balance Config, Rules
                                     # TODO: Test Tags
                                     Section -Style Heading3 $DSCluster.Name {
-                                        Paragraph ("The following table details the configuration " +
-                                            "for datastore cluster $DSCluster.")
+                                        Paragraph ((Get-Translation -Key "StorageClusterConfigDetails_vCenter") + "$DSCluster.") 
                                         BlankLine
 
                                         $DSClusterDetail = [PSCustomObject]@{
@@ -4244,7 +4241,7 @@ function Invoke-AsBuiltReport.VMware.vSphere {
                                                 $false { 'Disabled' }
                                             }
                                             'I/O Latency Threshold' = "$($DSCluster.IOLatencyThresholdMillisecond) ms"
-                                            'Capacity' = "$([math]::Round($DSCluster.CapacityGB, 2)) GB"
+                                            (Get-Translation -Key "Keyword_Capacity") = "$([math]::Round($DSCluster.CapacityGB, 2)) GB"
                                             'Free Space' = "$([math]::Round($DSCluster.FreeSpaceGB, 2)) GB"
                                             '% Used' = Switch ($DSCluster.CapacityGB -gt 0) {
                                                 $true { [math]::Round((100 - (($DSCluster.FreeSpaceGB) / ($DSCluster.CapacityGB) * 100)), 2) }
@@ -4345,7 +4342,7 @@ function Invoke-AsBuiltReport.VMware.vSphere {
                 if ($InfoLevel.VM -ge 1) {
                     if ($VMs) {
                         Section -Style Heading2 'Virtual Machines' {
-                            Paragraph "The following sections detail the configuration of virtual machines managed by vCenter Server $vCenterServerName."
+                            Paragraph ((Get-Translation -Key "VMConfig_vCenter") + "$vCenterServerName.") 
                             #region Virtual Machine Summary Information
                             if ($InfoLevel.VM -eq 1) {
                                 BlankLine
@@ -4392,7 +4389,7 @@ function Invoke-AsBuiltReport.VMware.vSphere {
                                             'PoweredOff' { 'Off' }
                                             default { $VM.PowerState }
                                         }
-                                        'IP Address' = Switch ($VMView.Guest.IpAddress) {
+                                        (Get-Translation -Key "Keyword_IPAddress") = Switch ($VMView.Guest.IpAddress) {
                                             $null { '--' }
                                             default { $VMView.Guest.IpAddress }
                                         }
@@ -4432,7 +4429,7 @@ function Invoke-AsBuiltReport.VMware.vSphere {
                                             [PSCustomObject]@{
                                                 'Virtual Machine' = $VMLookup."$($VMSnapshot.VM)"
                                                 'Snapshot Name' = $VMSnapshot.Name
-                                                'Description' = $VMSnapshot.Description
+                                                (Get-Translation -Key "Keyword_Description") = $VMSnapshot.Description
                                                 'Days Old' = ((Get-Date).ToUniversalTime() - $VMSnapshot.CreateTime).Days
                                             }
                                         }
@@ -4532,12 +4529,12 @@ function Invoke-AsBuiltReport.VMware.vSphere {
                                             } else {
                                                 '--'
                                             }
-                                            'IP Address' = if ($VMView.Guest.Net.IpAddress) {
+                                            (Get-Translation -Key "Keyword_IPAddress") = if ($VMView.Guest.Net.IpAddress) {
                                                 (($VMView.Guest.Net | Where-Object { ($null -ne $_.Network) -and ($null -ne $_.IpAddress) } | Select-Object IpAddress | Sort-Object IpAddress).IpAddress -join ', ')
                                             } else {
                                                 '--'
                                             }
-                                            'MAC Address' = if ($VMView.Guest.Net.MacAddress) {
+                                            (Get-Translation -Key "Keyword_MACAddress") = if ($VMView.Guest.Net.MacAddress) {
                                                 (($VMView.Guest.Net | Where-Object { $null -ne $_.Network } | Select-Object -Property MacAddress).MacAddress -join ', ')
                                             } else {
                                                 '--'
@@ -4636,8 +4633,8 @@ function Invoke-AsBuiltReport.VMware.vSphere {
                                                                 default { $VMnic.Device.NetworkName }
                                                             }
                                                             'Adapter Type' = $VMnic.Device.Type
-                                                            'IP Address' = $VMnic.IpAddress -join [Environment]::NewLine
-                                                            'MAC Address' = $VMnic.Device.MacAddress
+                                                            (Get-Translation -Key "Keyword_IPAddress") = $VMnic.IpAddress -join [Environment]::NewLine
+                                                            (Get-Translation -Key "Keyword_MACAddress") = $VMnic.Device.MacAddress
                                                         }
                                                     }
                                                     $TableParams = @{
@@ -4681,7 +4678,7 @@ function Invoke-AsBuiltReport.VMware.vSphere {
                                                             [PSCustomObject]@{
                                                                 'Disk' = $VMHdd.Name
                                                                 'Datastore' = $VMHdd.FileName.Substring($VMHdd.Filename.IndexOf("[") + 1, $VMHdd.Filename.IndexOf("]") - 1)
-                                                                'Capacity' = "$([math]::Round(($VMHdd.CapacityGB), 2)) GB"
+                                                                (Get-Translation -Key "Keyword_Capacity") = "$([math]::Round(($VMHdd.CapacityGB), 2)) GB"
                                                                 'Disk Provisioning' = Switch ($VMHdd.StorageFormat) {
                                                                     'EagerZeroedThick' { 'Thick Eager Zeroed' }
                                                                     'LazyZeroedThick' { 'Thick Lazy Zeroed' }
@@ -4717,7 +4714,7 @@ function Invoke-AsBuiltReport.VMware.vSphere {
                                                                 $SCSIController = $SCSIControllers | Where-Object { $SCSIDevice.ControllerKey -eq $_.Key }
                                                                 $VMHardDiskInfo = [PSCustomObject]@{
                                                                     'Datastore' = $VMHdd.FileName.Substring($VMHdd.Filename.IndexOf("[") + 1, $VMHdd.Filename.IndexOf("]") - 1)
-                                                                    'Capacity' = "$([math]::Round(($VMHdd.CapacityGB), 2)) GB"
+                                                                    (Get-Translation -Key "Keyword_Capacity") = "$([math]::Round(($VMHdd.CapacityGB), 2)) GB"
                                                                     'Disk Path' = $VMHdd.Filename.Substring($VMHdd.Filename.IndexOf("]") + 2)
                                                                     'Disk Shares' = "$($TextInfo.ToTitleCase($VMHdd.ExtensionData.Shares.Level)) / $($VMHdd.ExtensionData.Shares.Shares)"
                                                                     'Disk Limit IOPs' = Switch ($VMHdd.ExtensionData.StorageIOAllocation.Limit) {
@@ -4764,7 +4761,7 @@ function Invoke-AsBuiltReport.VMware.vSphere {
                                                     $VMGuestDiskInfo = foreach ($VMGuestVol in $VMGuestVols) {
                                                         [PSCustomObject]@{
                                                             'Path' = $VMGuestVol.Path
-                                                            'Capacity' = "$([math]::Round(($VMGuestVol.CapacityGB), 2)) GB"
+                                                            (Get-Translation -Key "Keyword_Capacity") = "$([math]::Round(($VMGuestVol.CapacityGB), 2)) GB"
                                                             'Used Space' = "$([math]::Round((($VMGuestVol.CapacityGB) - ($VMGuestVol.FreeSpaceGB)), 2)) GB"
                                                             'Free Space' = "$([math]::Round($VMGuestVol.FreeSpaceGB, 2)) GB"
                                                         }
@@ -4787,7 +4784,7 @@ function Invoke-AsBuiltReport.VMware.vSphere {
                                                 $VMSnapshots = foreach ($VMSnapshot in $VMSnapshotList) {
                                                     [PSCustomObject]@{
                                                         'Snapshot Name' = $VMSnapshot.Name
-                                                        'Description' = $VMSnapshot.Description
+                                                        (Get-Translation -Key "Keyword_Description") = $VMSnapshot.Description
                                                         'Days Old' = ((Get-Date).ToUniversalTime() - $VMSnapshot.CreateTime).Days
                                                     }
                                                 }
@@ -4824,13 +4821,13 @@ function Invoke-AsBuiltReport.VMware.vSphere {
                     }
                     if ($VUMBaselines) {
                         Section -Style Heading2 'VMware Update Manager' {
-                            Paragraph "The following sections detail the configuration of VMware Update Manager managed by vCenter Server $vCenterServerName."
+                            Paragraph ((Get-Translation -Key "VUMConfig_vCenter") + "$vCenterServerName.")
                             #region VUM Baseline Detailed Information
                             Section -Style Heading3 'Baselines' {
                                 $VUMBaselineInfo = foreach ($VUMBaseline in $VUMBaselines) {
                                     [PSCustomObject]@{
                                         'Baseline' = $VUMBaseline.Name
-                                        'Description' = $VUMBaseline.Description
+                                        (Get-Translation -Key "Keyword_Description") = $VUMBaseline.Description
                                         'Type' = $VUMBaseline.BaselineType
                                         'Target Type' = $VUMBaseline.TargetType
                                         'Last Update Time' = ($VUMBaseline.LastUpdateTime).ToLocalTime()
@@ -4861,7 +4858,7 @@ function Invoke-AsBuiltReport.VMware.vSphere {
                                         [PSCustomObject]@{
                                             'Patch' = $VUMPatch.Name
                                             'Product' = ($VUMPatch.Product).Name
-                                            'Description' = $VUMPatch.Description
+                                            (Get-Translation -Key "Keyword_Description") = $VUMPatch.Description
                                             'Release Date' = $VUMPatch.ReleaseDate
                                             'Vendor ID' = $VUMPatch.IdByVendor
                                         }
